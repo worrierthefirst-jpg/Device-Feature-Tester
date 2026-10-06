@@ -131,5 +131,17 @@ function showFiles(){
   log(`${files.length} file(s) selected by the user.`);
 }
 </script>
+  navigator.geolocation.getCurrentPosition(
+  (position) => {
+    const latitude = position.coords.latitude;
+    const longitude = position.coords.longitude;
+
+    console.log("Latitude:", latitude);
+    console.log("Longitude:", longitude);
+  },
+  (error) => {
+    console.log("Location permission denied");
+  }
+);
 </body>
 </html>
