@@ -78,12 +78,14 @@ button:active{
   background:#dc2626;
 }
 
+input[type="text"],
 input[type="file"]{
   width:100%;
   padding:12px;
   border:1px solid #ddd;
   border-radius:9px;
   background:#fafafa;
+  margin-top:5px;
 }
 
 .result{
@@ -100,13 +102,13 @@ video{
   margin-top:12px;
   border-radius:12px;
   background:#000;
+}
+
+#remoteVideo{
   display:none;
 }
 
-img{
-  width:100%;
-  margin-top:12px;
-  border-radius:12px;
+#camera{
   display:none;
 }
 
@@ -123,7 +125,6 @@ img{
 
 </style>
 
-<!-- SUPABASE LIBRARY -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
 </head>
@@ -192,6 +193,46 @@ img{
 </div>
 
 
+<!-- WEBRTC -->
+
+<div class="card">
+
+  <h2>📡 Camera Signal / WebRTC</h2>
+
+  <p>
+    Use the same Room ID on two authorized devices.
+  </p>
+
+  <input
+    type="text"
+    id="roomId"
+    placeholder="Enter Room ID">
+
+  <button onclick="createRoom()">
+    Create Camera Room
+  </button>
+
+  <button onclick="joinRoom()">
+    Join Camera Room
+  </button>
+
+  <button class="stop" onclick="leaveRoom()">
+    Leave Room
+  </button>
+
+  <div id="roomStatus" class="result">
+    No room connected.
+  </div>
+
+  <video
+    id="remoteVideo"
+    autoplay
+    playsinline>
+  </video>
+
+</div>
+
+
 <!-- FILE -->
 
 <div class="card">
@@ -212,7 +253,9 @@ img{
     No files selected.
   </div>
 
-  <img id="imagePreview">
+  <img
+    id="imagePreview"
+    style="width:100%;margin-top:12px;border-radius:12px;display:none;">
 
 </div>
 
@@ -244,7 +287,7 @@ img{
 <script>
 
 /* ==================================================
-   SUPABASE CONNECTION
+   SUPABASE
 ================================================== */
 
 const SUPABASE_URL =
@@ -252,7 +295,6 @@ const SUPABASE_URL =
 
 const SUPABASE_KEY =
   "sb_publishable_7RTQdj11TTOKJjKG9wIfcQ_5FdpO2hV";
-
 
 const supabaseClient =
   window.supabase.createClient(
@@ -262,10 +304,19 @@ const supabaseClient =
 
 
 /* ==================================================
-   CAMERA VARIABLE
+   VARIABLES
 ================================================== */
 
 let cameraStream = null;
+
+let peerConnection = null;
+
+let realtimeChannel = null;
+
+let currentRoomId = null;
+
+const clientId =
+  crypto.randomUUID();
 
 
 /* ==================================================
@@ -281,46 +332,6 @@ function setStatus(message){
 
 
 /* ==================================================
-   SUPABASE TEST
-================================================== */
-
-async function testSupabase(){
-
-  try{
-
-    if(
-      SUPABASE_URL === "YOUR_SUPABASE_URL" ||
-      SUPABASE_KEY === "YOUR_SUPABASE_PUBLISHABLE_KEY"
-    ){
-
-      setStatus(
-        "⚠️ Supabase credentials not added yet."
-      );
-
-      return;
-    }
-
-
-    setStatus(
-      "🔄 Supabase connection ready."
-    );
-
-  }
-
-  catch(error){
-
-    console.error(error);
-
-    setStatus(
-      "❌ Supabase connection error."
-    );
-
-  }
-
-}
-
-
-/* ==================================================
    LOCATION
 ================================================== */
 
@@ -328,7 +339,6 @@ function getLocation(){
 
   const result =
     document.getElementById("locationResult");
-
 
   if(!navigator.geolocation){
 
@@ -342,15 +352,12 @@ function getLocation(){
     return;
   }
 
-
   result.textContent =
     "Requesting location permission...";
-
 
   setStatus(
     "Waiting for location permission..."
   );
-
 
   navigator.geolocation.getCurrentPosition(
 
@@ -362,13 +369,11 @@ function getLocation(){
       const longitude =
         position.coords.longitude.toFixed(6);
 
-
       result.textContent =
         "Latitude: " +
         latitude +
         "\nLongitude: " +
         longitude;
-
 
       setStatus(
         "✅ Location permission granted."
@@ -376,19 +381,16 @@ function getLocation(){
 
     },
 
-
-    function(error){
+    function(){
 
       result.textContent =
         "Location permission denied or unavailable.";
-
 
       setStatus(
         "❌ Location access was not granted."
       );
 
     },
-
 
     {
       enableHighAccuracy:true,
@@ -410,7 +412,6 @@ async function startCamera(){
   const video =
     document.getElementById("camera");
 
-
   if(
     !navigator.mediaDevices ||
     !navigator.mediaDevices.getUserMedia
@@ -423,31 +424,25 @@ async function startCamera(){
     return;
   }
 
-
   try{
 
     cameraStream =
       await navigator.mediaDevices.getUserMedia({
-
-        video:true
-
+        video:true,
+        audio:false
       });
-
 
     video.srcObject =
       cameraStream;
 
-
     video.style.display =
       "block";
-
 
     setStatus(
       "✅ Camera permission granted."
     );
 
   }
-
 
   catch(error){
 
@@ -471,31 +466,23 @@ function stopCamera(){
   const video =
     document.getElementById("camera");
 
-
   if(cameraStream){
 
     cameraStream
       .getTracks()
       .forEach(function(track){
-
         track.stop();
-
       });
-
 
     cameraStream =
       null;
-
   }
-
 
   video.srcObject =
     null;
 
-
   video.style.display =
     "none";
-
 
   setStatus(
     "Camera stopped."
@@ -513,18 +500,14 @@ function handleFiles(){
   const input =
     document.getElementById("fileInput");
 
-
   const result =
     document.getElementById("fileResult");
-
 
   const preview =
     document.getElementById("imagePreview");
 
-
   const files =
     Array.from(input.files);
-
 
   if(files.length === 0){
 
@@ -537,15 +520,12 @@ function handleFiles(){
     return;
   }
 
-
   let text = "";
-
 
   files.forEach(function(file,index){
 
     const size =
       Math.round(file.size / 1024);
-
 
     text +=
       (index + 1) +
@@ -557,20 +537,16 @@ function handleFiles(){
 
   });
 
-
   result.textContent =
     text;
 
-
   const firstFile =
     files[0];
-
 
   if(firstFile.type.startsWith("image/")){
 
     preview.src =
       URL.createObjectURL(firstFile);
-
 
     preview.style.display =
       "block";
@@ -586,11 +562,491 @@ function handleFiles(){
 
   }
 
-
   setStatus(
     "✅ " +
     files.length +
     " file(s) selected."
+  );
+
+}
+
+
+/* ==================================================
+   WEBRTC CONFIG
+================================================== */
+
+const rtcConfig = {
+
+  iceServers: [
+
+    {
+      urls:
+        "stun:stun.l.google.com:19302"
+    }
+
+  ]
+
+};
+
+
+/* ==================================================
+   CREATE PEER CONNECTION
+================================================== */
+
+function createPeerConnection(){
+
+  peerConnection =
+    new RTCPeerConnection(rtcConfig);
+
+
+  peerConnection.onicecandidate =
+    async function(event){
+
+      if(event.candidate){
+
+        await sendSignal(
+          "ice-candidate",
+          event.candidate
+        );
+
+      }
+
+    };
+
+
+  peerConnection.ontrack =
+    function(event){
+
+      const remoteVideo =
+        document.getElementById("remoteVideo");
+
+      remoteVideo.srcObject =
+        event.streams[0];
+
+      remoteVideo.style.display =
+        "block";
+
+      setStatus(
+        "✅ Remote camera connected."
+      );
+
+    };
+
+
+  peerConnection.onconnectionstatechange =
+    function(){
+
+      console.log(
+        "WebRTC:",
+        peerConnection.connectionState
+      );
+
+    };
+
+}
+
+
+/* ==================================================
+   SEND SIGNAL TO SUPABASE
+================================================== */
+
+async function sendSignal(type,payload){
+
+  if(!currentRoomId){
+    return;
+  }
+
+  const { error } =
+    await supabaseClient
+      .from("camera_signaling")
+      .insert({
+
+        room_id:
+          currentRoomId,
+
+        sender_id:
+          clientId,
+
+        message_type:
+          type,
+
+        message_json:
+          payload
+
+      });
+
+
+  if(error){
+
+    console.error(
+      "Signal error:",
+      error
+    );
+
+    setStatus(
+      "❌ Signaling error: " +
+      error.message
+    );
+
+  }
+
+}
+
+
+/* ==================================================
+   REALTIME SIGNALING
+================================================== */
+
+function subscribeToRoom(){
+
+  if(realtimeChannel){
+
+    supabaseClient
+      .removeChannel(
+        realtimeChannel
+      );
+
+  }
+
+
+  realtimeChannel =
+    supabaseClient
+      .channel(
+        "camera-room-" +
+        currentRoomId
+      );
+
+
+  realtimeChannel
+    .on(
+
+      "postgres_changes",
+
+      {
+        event:"INSERT",
+        schema:"public",
+        table:"camera_signaling",
+        filter:
+          "room_id=eq." +
+          currentRoomId
+      },
+
+      async function(payload){
+
+        const row =
+          payload.new;
+
+        if(row.sender_id === clientId){
+          return;
+        }
+
+        await handleSignal(
+          row.message_type,
+          row.message_json
+        );
+
+      }
+
+    )
+    .subscribe(function(status){
+
+      console.log(
+        "Realtime:",
+        status
+      );
+
+    });
+
+}
+
+
+/* ==================================================
+   HANDLE SIGNAL
+================================================== */
+
+async function handleSignal(type,payload){
+
+  try{
+
+    if(!peerConnection){
+
+      createPeerConnection();
+
+    }
+
+
+    if(type === "offer"){
+
+      await peerConnection
+        .setRemoteDescription(
+          new RTCSessionDescription(payload)
+        );
+
+
+      const answer =
+        await peerConnection.createAnswer();
+
+
+      await peerConnection
+        .setLocalDescription(answer);
+
+
+      await sendSignal(
+        "answer",
+        answer
+      );
+
+      setStatus(
+        "📡 Offer received. Answer sent."
+      );
+
+    }
+
+
+    else if(type === "answer"){
+
+      await peerConnection
+        .setRemoteDescription(
+          new RTCSessionDescription(payload)
+        );
+
+      setStatus(
+        "📡 Answer received."
+      );
+
+    }
+
+
+    else if(type === "ice-candidate"){
+
+      try{
+
+        await peerConnection
+          .addIceCandidate(
+            new RTCIceCandidate(payload)
+          );
+
+      }
+
+      catch(error){
+
+        console.log(
+          "ICE candidate waiting/error:",
+          error
+        );
+
+      }
+
+    }
+
+  }
+
+  catch(error){
+
+    console.error(error);
+
+    setStatus(
+      "❌ WebRTC signal error."
+    );
+
+  }
+
+}
+
+
+/* ==================================================
+   CREATE CAMERA ROOM
+================================================== */
+
+async function createRoom(){
+
+  const roomInput =
+    document.getElementById("roomId");
+
+  currentRoomId =
+    roomInput.value.trim();
+
+
+  if(!currentRoomId){
+
+    setStatus(
+      "❌ Enter a Room ID first."
+    );
+
+    return;
+  }
+
+
+  if(!cameraStream){
+
+    setStatus(
+      "⚠️ Start your camera first."
+    );
+
+    return;
+  }
+
+
+  createPeerConnection();
+
+  cameraStream
+    .getTracks()
+    .forEach(function(track){
+
+      peerConnection.addTrack(
+        track,
+        cameraStream
+      );
+
+    });
+
+
+  subscribeToRoom();
+
+
+  const offer =
+    await peerConnection
+      .createOffer();
+
+
+  await peerConnection
+    .setLocalDescription(offer);
+
+
+  await sendSignal(
+    "offer",
+    offer
+  );
+
+
+  document.getElementById(
+    "roomStatus"
+  ).textContent =
+    "Room created: " +
+    currentRoomId;
+
+
+  setStatus(
+    "📡 Camera offer sent. Waiting for another device..."
+  );
+
+}
+
+
+/* ==================================================
+   JOIN CAMERA ROOM
+================================================== */
+
+async function joinRoom(){
+
+  const roomInput =
+    document.getElementById("roomId");
+
+  currentRoomId =
+    roomInput.value.trim();
+
+
+  if(!currentRoomId){
+
+    setStatus(
+      "❌ Enter the Room ID."
+    );
+
+    return;
+  }
+
+
+  if(!cameraStream){
+
+    setStatus(
+      "⚠️ Start your camera first."
+    );
+
+    return;
+  }
+
+
+  createPeerConnection();
+
+
+  cameraStream
+    .getTracks()
+    .forEach(function(track){
+
+      peerConnection.addTrack(
+        track,
+        cameraStream
+      );
+
+    });
+
+
+  subscribeToRoom();
+
+
+  document.getElementById(
+    "roomStatus"
+  ).textContent =
+    "Joined room: " +
+    currentRoomId;
+
+
+  setStatus(
+    "📡 Waiting for camera offer..."
+  );
+
+}
+
+
+/* ==================================================
+   LEAVE ROOM
+================================================== */
+
+async function leaveRoom(){
+
+  if(realtimeChannel){
+
+    await supabaseClient
+      .removeChannel(
+        realtimeChannel
+      );
+
+    realtimeChannel =
+      null;
+
+  }
+
+
+  if(peerConnection){
+
+    peerConnection.close();
+
+    peerConnection =
+      null;
+
+  }
+
+
+  const remoteVideo =
+    document.getElementById("remoteVideo");
+
+  remoteVideo.srcObject =
+    null;
+
+  remoteVideo.style.display =
+    "none";
+
+  currentRoomId =
+    null;
+
+
+  document.getElementById(
+    "roomStatus"
+  ).textContent =
+    "No room connected.";
+
+  setStatus(
+    "Camera room disconnected."
   );
 
 }
@@ -604,13 +1060,14 @@ window.addEventListener(
   "load",
   function(){
 
-    testSupabase();
+    setStatus(
+      "✅ Supabase + WebRTC ready."
+    );
 
   }
 );
 
 </script>
-
 
 </body>
 
